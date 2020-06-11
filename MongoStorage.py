@@ -34,7 +34,11 @@ class Storage(object):
         self.requests = self.db["requests"]
 
         # define index for collections, ensure better searching and prevent duplication
-        self.users.create_index("userid")
+        try:
+            self.users.drop_index("userid") # remove previous index
+        except:
+            pass
+        self.users.create_index("username")
         self.days.create_index("date")
         self.requests.create_index("username")
 
