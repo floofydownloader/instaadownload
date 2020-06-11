@@ -14,6 +14,7 @@ from Api import InstagramAPI
 
 class MongoDB(object):
     def __init__(self):
+        # the replace is for temporary fix issue
         client = pymongo.MongoClient(os.environ["MONGODB_URI"].replace("retryWrites=true", "retryWrites=false"), retryWrites=False)
         self.db = client.get_default_database()
 
@@ -107,7 +108,7 @@ class Storage(object):
     def internal_get_user(self, userid, create = False, username = ""):
         user = None
 
-        if userid is not None and userid != "":
+        if userid is not None and userid > 0:
             user = self.users.find_one({ "userid": userid })
         
         if user is None:
