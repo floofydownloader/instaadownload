@@ -7,42 +7,31 @@ import random
 import json
 import hashlib
 import hmac
-import urllib
+import urllib.parse
 import uuid
 import time
 import copy
-import math
-import sys
-import string
 from datetime import datetime
-import calendar
 import os
-import random
 from dVideo import dVideo
 from requests_toolbelt import MultipartEncoder
 import logging
-from pathlib import Path
-import pickle
-# Turn off InsecureRequestWarning
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
-requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("requests").setLevel(logging.WARNING)
+from ImageUtils import getImageSize
+
+# Turn off InsecureRequestWarning
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
     from moviepy.editor import VideoFileClip
 except:
     print("Fail to import moviepy. Need only for Video upload.")
 
-# The urllib library was split into other modules from Python 2 to Python 3
-if sys.version_info.major == 3:
-    import urllib.parse
-try:
-    from ImageUtils import getImageSize
-except:
-    # Issue 159, python3 import fix
-    from .ImageUtils import getImageSize
+
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
+
 
 
 class InstagramAPI:
@@ -69,7 +58,7 @@ class InstagramAPI:
 
     def __init__(self, username):
         m = hashlib.md5()
-        m.update(username.encode('utf-8') + str(random.randint(1, 100000000)).encode('utf-8'))
+        m.update(username.encode('utf-8'))
         self.device_id = self.generateDeviceId(m.hexdigest())
         self.uuid = self.generateUUID(True)
         self.username = username
@@ -208,7 +197,7 @@ class InstagramAPI:
 
             videoData = open(video, 'rb').read()
             # solve issue #85 TypeError: slice indices must be integers or None or have an __index__ method
-            request_size = int(math.floor(len(videoData) / 4))
+            request_size = len(videoData) // 4
             lastRequestExtra = (len(videoData) - (request_size * 3))
 
             headers = copy.deepcopy(self.s.headers)
@@ -318,12 +307,7 @@ class InstagramAPI:
                             correct = False
                     except:
                         correct = False
-                try:
-                    user_id = long(user_id)
-                    if user_id < 0:
-                        correct = False
-                except:
-                    correct = False
+                correct = correct and user_id.isdigit()
             if not correct:
                 raise Exception('Invalid user entry in usertags array.')
 
@@ -408,7 +392,7 @@ class InstagramAPI:
             return False
 
     def direct_share(self, media_id, recipients, text=None):
-        if not isinstance(position, list):
+        if not isinstance(recipients, list):
             recipients = [str(recipients)]
         recipient_users = '"",""'.join(str(r) for r in recipients)
         endpoint = 'direct_v2/threads/broadcast/media_share/?media_type=photo'
@@ -708,10 +692,7 @@ class InstagramAPI:
                         'rank_token': self.rank_token}
         if maxid:
             query_string['max_id'] = maxid
-        if sys.version_info.major == 3:
-            url += urllib.parse.urlencode(query_string)
-        else:
-            url += urllib.urlencode(query_string)
+        url += urllib.parse.urlencode(query_string)
         return self.SendRequest(url)
 
     def getSelfUsersFollowing(self):
@@ -798,16 +779,13 @@ class InstagramAPI:
 
     def generateSignature(self, data, skip_quote=False):
         if not skip_quote:
-            try:
-                parsedData = urllib.parse.quote(data)
-            except AttributeError:
-                parsedData = urllib.quote(data)
+            parsedData = urllib.parse.quote(data)
         else:
             parsedData = data
         return 'ig_sig_key_version=' + self.SIG_KEY_VERSION + '&signed_body=' + hmac.new(self.IG_SIG_KEY.encode('utf-8'), data.encode('utf-8'), hashlib.sha256).hexdigest() + '.' + parsedData
 
     def generateDeviceId(self, seed):
-        volatile_seed = "12345"
+        volatile_seed = str(random.randint(1, 100000000))
         m = hashlib.md5()
         m.update(seed.encode('utf-8') + volatile_seed.encode('utf-8'))
         return 'android-' + m.hexdigest()[:16]
@@ -820,7 +798,7 @@ class InstagramAPI:
             return generated_uuid.replace('-', '')
 
     def generateUploadId(self):
-        return str(calendar.timegm(datetime.utcnow().utctimetuple()))
+        return str(int(datetime.utcnow().timestamp()))
 
     def buildBody(self, bodies, boundary):
         body = ""
@@ -830,6 +808,9 @@ class InstagramAPI:
             _filename = b.get('filename', None)
             _headers = b.get('headers', None)
             if _filename:
+                #ext = _finename.rsplit(".", 1)[1] if _filename.rfind(".") > 0 else ""
+                #if _filename "".rfind(".") > 0:
+                    #ex
                 _filename, ext = os.path.splitext(_filename)
                 body += '; filename="pending_media_{uid}.{ext}'.format(uid=self.generateUploadId(), ext=ext)
             if _headers and isinstance(_headers, list):
@@ -931,7 +912,7 @@ class InstagramAPI:
     def getTotalLikedMedia(self, scan_rate=1):
         next_id = ''
         liked_items = []
-        for x in range(0, scan_rate):
+        for _x in range(0, scan_rate):
             temp = self.getLikedMedia(next_id)
             temp = self.LastJson
             try:
@@ -957,7 +938,7 @@ class InstagramAPI:
         return ctime
    
     def prepare_direct(self, recipients, filepath, itemcode):
-        itemtype = "video" if itemcode == 2 else "photo"
+        item_type = "video" if itemcode == 2 else "photo"
         itemext = "mp4" if itemcode == 2 else "jpeg"
         baseheaders  = copy.deepcopy(self.s.headers)
         try:
@@ -969,7 +950,7 @@ class InstagramAPI:
             waterfallId = self.generateUUID(True)
             entityName = uploadId + "_0_" + hashCode
 
-            uri = "https://i.instagram.com/rupload_ig{t}/{s}".format(t=itemtype, s=entityName)
+            uri = "https://i.instagram.com/rupload_ig{t}/{s}".format(t=item_type, s=entityName)
             retryContext = self.getRetryContext()
 
             uploadParams = json.dumps({'upload_media_height' : "0", # we could provide that
@@ -999,9 +980,9 @@ class InstagramAPI:
                 time.sleep(20)
                 raise Exception('Handshake error')
 
-            # Video Upload
-            videobytes = open(filepath, 'rb').read()
-            entitytype = '{t}/{e}'.format(t=itemtype, e=itemext)
+            # item Upload
+            item_bytes = open(filepath, 'rb').read()
+            entitytype = '{t}/{e}'.format(t=item_type, e=itemext)
 
             self.s.headers.update({'Accept-Language': 'en-US',
                                     'X-IG-Capabilities': '3Q4=',
@@ -1012,7 +993,7 @@ class InstagramAPI:
                                     'Offset': '0',
                                     'X-Instagram-Rupload-Params': uploadParams,
                                     'X-Entity-Name': entitytype,
-                                    'X-Entity-Length': str(len(videobytes)),
+                                    'X-Entity-Length': str(len(item_bytes)),
                                     'X_FB_VIDEO_WATERFALL_ID': waterfallId,
                                     'Host': 'i.instagram.com',
                                     'Connection': 'keep-alive',
@@ -1020,7 +1001,7 @@ class InstagramAPI:
                                     })
 
 
-            response = self.s.post(uri, data=videobytes)
+            response = self.s.post(uri, data=item_bytes)
             if response.status_code != 200:
                 print("Request return " + str(response.status_code) + " error!")
                 self.s.headers = baseheaders 
@@ -1040,11 +1021,11 @@ class InstagramAPI:
 
 
     def send_direct(self, dVideo, itemcode):
-        itemtype = "video" if itemcode == 2 else "photo"
+        item_type = "video" if itemcode == 2 else "photo"
         baseheaders  = copy.deepcopy(self.s.headers)
         
         self.s.headers = dVideo.header
-        confuri = "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/configure_{t}/".format(t=itemtype)
+        confuri = "https://i.instagram.com/api/v1/direct_v2/threads/broadcast/configure_{t}/".format(t=item_type)
 
         content = ""
         content += "action=send_item"
@@ -1077,7 +1058,7 @@ class InstagramAPI:
             if response.status_code != 200:
                 print("Request return " + str(response.status_code) + " error!")
                 self.s.headers = baseheaders
-                raise Exception('Unable to configure {t}: {e}'.format(t=itemtype, e=response.text))
+                raise Exception('Unable to configure {t}: {e}'.format(t=item_type, e=response.text))
 
         self.s.headers = baseheaders
 

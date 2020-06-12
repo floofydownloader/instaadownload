@@ -27,4 +27,4 @@ class Delay(object):
         if i > 0:
             delay = delay / i
         
-        return int(delay * 10) // 10
+        return int(delay * 10) / 10

@@ -6,6 +6,5 @@ password = os.environ['INSTA_PASSWORD']
 admins = []
 if 'INSTA_ADMINS' in os.environ:
     admins = os.environ['INSTA_ADMINS'].split(" ")
-promote_message = "This bot is being run by @floofygroup, follow them for updates!"
 
-Login(username, password, admins, promote_message)
+Login(username, password, admins)

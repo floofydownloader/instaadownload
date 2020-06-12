@@ -35,10 +35,6 @@ class Storage(object):
         self.requests = self.db["requests"]
 
         # define index for collections, ensure better searching and prevent duplication
-        try:
-            self.users.drop_index("userid") # remove previous index
-        except:
-            pass
         self.users.create_index("username")
         self.days.create_index("date")
         self.requests.create_index("username")
@@ -95,7 +91,7 @@ class Storage(object):
             "username": username,
             "priority": self.DEFAULT_PRIORITY,
             "latest_item_time": 0,
-            "downloaded_from": []
+            self.collection_info_list["users"]["array_name"]: []
         }
         user = self.users.insert_one(userData)
         userData["_id"] = user.inserted_id
@@ -142,23 +138,7 @@ class Storage(object):
         if user == None:
             return False
 
-        # first add in { username, downloads: 0 } if array does not have username
-        self.users.update_one({
-            "userid": userid,
-            "downloaded_from.username": { "$ne": downloaded_from }
-        }, {
-            "$push": { 
-                "downloaded_from": { "username": downloaded_from, "downloads": 0 }
-            }
-        })
-
-        # then increase by 1
-        self.users.update_one({
-            "userid": userid,
-            "downloaded_from.username": downloaded_from
-        }, {
-            "$inc": { "downloaded_from.$.downloads": 1 }
-        })
+        self.increase_count(self.collection_info_list["users"], "userid", userid, downloaded_from)
 
         # add day download count
         self.day_add_download()
@@ -174,22 +154,51 @@ class Storage(object):
         user = self.check_user(username, userid)
         self.modify_user({ "_id": user["_id"] }, {"$set": { "latest_item_time": item_time } })
 
-    def upgrade_priority(self, username):
+    def upgrade_priority(self, username, amount = 1):
+        amount = int(amount)
         user = self.check_user(username)
-        user = self.modify_user({ "_id": user["_id"] }, {"$inc": { "priority": 1 }})
+        user = self.modify_user({ "_id": user["_id"] }, {"$inc": { "priority": amount }})
         return user["priority"]
 
-    def downgrade_priority(self, username):
+    def downgrade_priority(self, username, amount = 1):
+        amount = int(amount)
         user = self.check_user(username)
-        user = self.modify_user({ "_id": user["_id"] }, {"$inc": { "priority": -1 }})
+        user = self.modify_user({ "_id": user["_id"] }, {"$inc": { "priority": -amount }})
         return user["priority"]
+
+    # SHARED PARTS
+
+    def increase_count(self, collection_info, search_key, search_value, count_username):
+        db_name = collection_info["name"]
+        array_name = collection_info["array_name"]
+        action_text = collection_info["action_text"]
+        array_username = "{}.username".format(array_name)
+        ref_action_text = "{}.$.{}".format(array_name, action_text)
+
+        # first add in { username, action: 0 } if array does not have username
+        self.db[db_name].update_one({
+            search_key: search_value,
+            array_username: { "$ne": count_username }
+        }, {
+            "$push": { 
+                array_name: { "username": count_username, action_text: 0 }
+            }
+        })
+
+        # then increase by 1
+        self.db[db_name].update_one({
+            search_key: search_value,
+            array_username: count_username
+        }, {
+            "$inc": { ref_action_text: 1 }
+        })
 
     # REQUEST DATA
 
     def create_request(self, username):
         requestData = {
             "username": username,
-            "requestors": []
+            self.collection_info_list["requests"]["array_name"]: []
         }
         request = self.requests.insert_one(requestData)
         requestData["_id"] = request.inserted_id
@@ -208,24 +217,8 @@ class Storage(object):
 
     def requested_add_request(self, username, requested_by_username):
         self.internal_get_request(username, create = True)
-        
-        # first add in { userid, requested: 0 } if array does not have userid
-        self.requests.update_one({
-            "username": username,
-            "requestors.username": { "$ne": requested_by_username }
-        }, {
-            "$push": { 
-                "requestors": { "username": requested_by_username, "requests": 0 }
-            }
-        })
 
-        # then increase by 1
-        self.requests.update_one({
-            "username": username,
-            "requestors.username": requested_by_username
-        }, {
-            "$inc": { "requestors.$.requests": 1 }
-        })
+        self.increase_count(self.collection_info_list["requests"], "username", username, requested_by_username)
 
     # STATS FUNCTION
 
@@ -281,11 +274,11 @@ class Storage(object):
 
         return output
 
-    def format_output(self, output, extra_info, username):
+    def format_output(self, output, extra_info, username, action_text):
         if extra_info == "":
             if username == "" or username is None:
-                return Language.get_text("admin.nodata")
-            return "No information found for account @{u}".format(u = username)
+                return Language.get_text("admin.no_data").format(action_text)
+            return Language.get_text("admin.no_spec_data").format(a = action_text, u = username)
         return output + extra_info
 
     def get_aggregated_account_info(self, collection_info, username, top_amount):
@@ -307,7 +300,7 @@ class Storage(object):
             output += collection_info["aggregate_all"] 
             extra_info += self.format_text(results, "_id", "total", action_text)
         
-        return self.format_output(output, extra_info, username)
+        return self.format_output(output, extra_info, username, action_text)
 
     def get_query_account_info(self, collection_info, username, top_amount):
         has_username = username != "" and username is not None
@@ -347,7 +340,7 @@ class Storage(object):
         
         extra_info = self.format_text(results, "username", key, action_text)
 
-        return self.format_output(output, extra_info, username)
+        return self.format_output(output, extra_info, username, action_text)
     
     # USER STATS
 
