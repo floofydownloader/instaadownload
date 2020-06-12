@@ -195,9 +195,10 @@ class InboxItem(object):
         self.users = json["users"]
         self.is_group = json["is_group"]
         self.item_type = self.item["item_type"]
-        self.author_id = 0
+        self.author_id = self.item["user_id"]
+        self.userid = 0
         if len(self.users) > 0:
-            self.author_id = self.users[0]["pk"]
+            self.userid = self.users[0]["pk"]
         self.timestamp = self.item["timestamp"]
 
 
@@ -249,7 +250,7 @@ class InboxItem(object):
 
     def get_multipost_json(self):
         jf = {}
-        jf["author_id"] = self.author_id
+        jf["author_id"] = self.userid
         jf["download_from"] = self.get_item_poster()
         jf["items"] = []
         for x in self.item["media_share"]["carousel_media"]:
@@ -337,13 +338,13 @@ class InboxHandler(object):
     def handle_media(self, username, item, item_code, same_queue = False, item_json = None, bypass = False, send_received = True):
         is_video = item_code == 2
 
-        user = self.cfg.get_user(item.author_id)
+        user = self.cfg.get_user(item.userid)
         if bypass != True and user["latest_item_time"] == item.timestamp:
             return
-        self.cfg.user_set_itemtime(item.author_id, username, item.timestamp)
+        self.cfg.user_set_itemtime(item.userid, username, item.timestamp)
 
         if not bypass and self.is_post_queued(item.get_media()["pk"], username):
-            self.api.sendMessage(str(item.author_id), "That post is already in the queue.")
+            self.api.sendMessage(str(item.userid), "That post is already in the queue.")
             return
 
         if not bypass:
@@ -355,11 +356,11 @@ class InboxHandler(object):
         duration = search_item["video_duration"] if is_video else 0
 
         if duration >= 70:
-            self.api.sendMessage(str(item.author_id), Language.get_text("video_to_long"))
+            self.api.sendMessage(str(item.userid), Language.get_text("video_to_long"))
             return
         elif send_received:
             # send placed in queue message
-            self.api.sendMessage(str(item.author_id), Language.get_text("in_queue").format(self.queue_total()))
+            self.api.sendMessage(str(item.userid), Language.get_text("in_queue").format(self.queue_total()))
 
         uploader = self.uploader
         
@@ -367,34 +368,34 @@ class InboxHandler(object):
             uploader = self.get_uploader()
             self.uploader = uploader
             
-        uploader.send_media(url, item.item["item_id"], item_code, item.get_media()["pk"], str(item.author_id),  username, item.get_item_poster(), item.timestamp, cut = duration >= 60)
+        uploader.send_media(url, item.item["item_id"], item_code, item.get_media()["pk"], str(item.userid),  username, item.get_item_poster(), item.timestamp, cut = duration >= 60)
         logging.info("Added @{u} to queue".format(u=username))
 
     def handle_text(self, username, item):
-        # change item.author_id to actual user
-        if self.cfg.get_user(item.author_id)["latest_item_time"] == item.timestamp:
+        if self.cfg.get_user(item.userid)["latest_item_time"] == item.timestamp:
             return
-        self.cfg.user_set_itemtime(item.author_id, username, item.timestamp)
+        self.cfg.user_set_itemtime(item.userid, username, item.timestamp)
 
         text = item.item["text"] if "text" in item.item else ""
 
         #ADMINCOMMANDS
         if username not in self.admins:
-            #self.api.sendMessage(str(item.author_id), Language.get_text("dm"))
+            self.api.sendMessage(str(item.userid), Language.get_text("dm"))
             return
         
+        message = "Commapnd not found, please use !help to list out all commands available"
         if text.startswith("!upgrade"):
             args = text.split(" ")
             pusername = args[1]
             amount = args[2] if len(args) >= 3 else 1
             now = self.cfg.upgrade_priority(pusername, amount)
-            self.api.sendMessage(str(item.author_id), "@{u} now has priority lvl {lv}".format(u=pusername, lv = now))
+            self.api.sendMessage(str(item.userid), "@{u} now has priority lvl {lv}".format(u=pusername, lv = now))
         elif text.startswith("!downgrade"):
             args = text.split(" ")
             pusername = args[1]
             amount = args[2] if len(args) >= 3 else 1
             now = self.cfg.downgrade_priority(pusername, amount)
-            self.api.sendMessage(str(item.author_id), "@{u} now has priority lvl {lv}".format(u=pusername, lv = now))
+            self.api.sendMessage(str(item.userid), "@{u} now has priority lvl {lv}".format(u=pusername, lv = now))
         elif text.startswith("!remove"):
             pusername = text.replace("!remove ", "")
             total = 0
@@ -403,14 +404,14 @@ class InboxHandler(object):
                     if i["username"] == pusername:
                         total += 1
                         upl.queue.remove(i)
-            self.api.sendMessage(str(item.author_id), "Removed {t} queue items from that user!".format(t=total))
+            self.api.sendMessage(str(item.userid), "Removed {t} queue items from that user!".format(t=total))
         elif text.startswith("!reset"):
             self.delay.reset_delay()
-            self.api.sendMessage(str(item.author_id), "Resetted!")
+            self.api.sendMessage(str(item.userid), "Resetted!")
         elif text.startswith("!day"):
-            # todo: add to see custom day
+            # TODO: add to see custom day
             downloads = self.cfg.get_day_download()
-            self.api.sendMessage(str(item.author_id), "{dl} downloads today!".format(dl = downloads))
+            self.api.sendMessage(str(item.userid), "{dl} downloads today!".format(dl = downloads))
         elif text.startswith("!top"):
             message = ""
             query = text.replace("!top ", "").split(" ")
@@ -461,41 +462,46 @@ class InboxHandler(object):
 
                 if index == 1:
                     message = "Download queue is empty"
-            self.api.sendMessage(str(item.author_id), message)
-        elif text == "!delay":
+            self.api.sendMessage(str(item.userid), message)
+        elif text.startswith("!delay"):
             msg = ""
             for i in range(0, 100):
                 d = self.delay.get_delay(i)
                 if d != 0:
                     msg += "Priority Lv {lvl} - {delay}s\r\n".format(lvl=i, delay=d)
             msg = ("Current average delay:\r\n" + msg) if msg != "" else Language.get_text("admin.no_data").format("delay")
-            self.api.sendMessage(str(item.author_id), msg)
+            self.api.sendMessage(str(item.userid), msg)
+        elif text.startswith("!help"):
+            message = ""
+        else:
+            message = "command not found, please reply !help for more info"
+            
 
     def handle_link(self, username, item):
-        if self.cfg.get_user(item.author_id)["latest_item_time"] == item.timestamp:
+        if self.cfg.get_user(item.userid)["latest_item_time"] == item.timestamp:
             return
-        self.cfg.user_set_itemtime(item.author_id, username, item.timestamp)
+        self.cfg.user_set_itemtime(item.userid, username, item.timestamp)
 
 
-        self.api.sendMessage(str(item.author_id), Language.get_text("links_not_supported"))
+        self.api.sendMessage(str(item.userid), Language.get_text("links_not_supported"))
         return
 
     def handle_placeholder(self, username, item):
-        if self.cfg.get_user(item.author_id)["latest_item_time"] == item.timestamp:
+        if self.cfg.get_user(item.userid)["latest_item_time"] == item.timestamp:
             return
-        self.cfg.user_set_itemtime(item.author_id, username, item.timestamp)
+        self.cfg.user_set_itemtime(item.userid, username, item.timestamp)
         if "Unavailable" in item.get_media()["title"]:
             msg = item.get_media()["message"]
             if "@" in msg:
                 username_requested = "".join([i for i in msg.split() if i.startswith("@")][0])[1:]
                 self.cfg.requested_add_request(username_requested, username)
             
-                self.api.sendMessage(str(item.author_id), Language.get_text("requested"))
+                self.api.sendMessage(str(item.userid), Language.get_text("requested"))
                 return
             elif "deleted" in msg:
-                self.api.sendMessage(str(item.author_id), Language.get_text("deleted"))
+                self.api.sendMessage(str(item.userid), Language.get_text("deleted"))
             else:
-                self.api.sendMessage(str(item.author_id), Language.get_text("blocked"))
+                self.api.sendMessage(str(item.userid), Language.get_text("blocked"))
         return
 
     def handle_story(self, username, item):
@@ -511,26 +517,26 @@ class InboxHandler(object):
             if reason != 4:
                 return
             #Not following
-            if self.cfg.get_user(item.author_id)["latest_item_time"] == item.timestamp:
+            if self.cfg.get_user(item.userid)["latest_item_time"] == item.timestamp:
                 return
-            self.cfg.user_set_itemtime(item.author_id, username, item.timestamp)
+            self.cfg.user_set_itemtime(item.userid, username, item.timestamp)
             username_requested = "".join([i for i in msg.split() if i.startswith("@")][0])[1:]
             self.cfg.requested_add_request(username_requested, username)
-            self.api.sendMessage(str(item.author_id), Language.get_text("requested"))
+            self.api.sendMessage(str(item.userid), Language.get_text("requested"))
             return
 
         self.handle_media(username, item, item.get_media_type())
 
     def handle_media_share(self, username, item):
-        if self.cfg.get_user(item.author_id)["latest_item_time"] == item.timestamp:
+        if self.cfg.get_user(item.userid)["latest_item_time"] == item.timestamp:
             return
 
         if item.get_media_type() == 8:
-            if self.cfg.get_user(item.author_id)["latest_item_time"] == item.timestamp:
+            if self.cfg.get_user(item.userid)["latest_item_time"] == item.timestamp:
                 return
             if self.queue_total() > 2000:
-                self.api.sendMessage(str(item.author_id), "Slideposts are currently disabled due to heavy server load. Please come back later.")
-                self.cfg.user_set_itemtime(item.author_id, username, item.timestamp)
+                self.api.sendMessage(str(item.userid), "Slideposts are currently disabled due to heavy server load. Please come back later.")
+                self.cfg.user_set_itemtime(item.userid, username, item.timestamp)
                 return
 
             count = 0
@@ -542,18 +548,18 @@ class InboxHandler(object):
                     
 
     def handle_profilepic(self, username, item):
-        if self.cfg.get_user(item.author_id)["latest_item_time"] == item.timestamp:
+        if self.cfg.get_user(item.userid)["latest_item_time"] == item.timestamp:
             return
-        self.cfg.user_set_itemtime(item.author_id, username, item.timestamp)
+        self.cfg.user_set_itemtime(item.userid, username, item.timestamp)
         if item.item["profile"]["has_anonymous_profile_picture"]:
-            self.api.sendMessage(str(item.author_id), "That profile picture is anonymous")
+            self.api.sendMessage(str(item.userid), "That profile picture is anonymous")
         url = item.item["profile"]["profile_pic_url"]
-        self.uploader.send_media(url, item.item["item_id"], 1, str(item.author_id),  username, item.item["profile"]["username"], item.timestamp, cut = False)
+        self.uploader.send_media(url, item.item["item_id"], 1, str(item.userid),  username, item.item["profile"]["username"], item.timestamp, cut = False)
         logging.info("Added @{u} to queue".format(u=username))
 
 
     def do_delay_ad(self, username, item):
-        user = self.cfg.get_user(item.author_id)
+        user = self.cfg.get_user(item.userid)
         priority = user["priority"]
         delay = self.delay.get_delay(priority)
         print("user " + username + " " + str(delay))
@@ -561,7 +567,7 @@ class InboxHandler(object):
             uprankdelay = self.delay.get_delay(priority+1)
             if uprankdelay > 150:
                 return
-            self.api.sendMessage(str(item.author_id), Language.get_text("long_queue").format(self.queue_total()))
+            self.api.sendMessage(str(item.userid), Language.get_text("long_queue").format(self.queue_total()))
 
     def handle_inbox(self):
         print("handle inbox")
@@ -604,7 +610,12 @@ class InboxHandler(object):
             item = InboxItem(i)
             if item.is_group:
                 continue
-            self.cfg.check_user(username, item.author_id)
+            
+            # reading own message, ignore it
+            if item.author_id != item.userid:
+                continue
+
+            self.cfg.check_user(username, item.userid)
 
             if item.item_type == "text":
                 self.handle_text(username, item)
