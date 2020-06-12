@@ -380,7 +380,7 @@ class InboxHandler(object):
 
         #ADMINCOMMANDS
         if username not in self.admins:
-            self.api.sendMessage(str(item.author_id), Language.get_text("dm"))
+            #self.api.sendMessage(str(item.author_id), Language.get_text("dm"))
             return
         
         if text.startswith("!upgrade"):
