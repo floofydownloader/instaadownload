@@ -379,6 +379,7 @@ class APIStorage(object):
             "username_id": instaAPI.username_id,
             "rank_token": instaAPI.rank_token,
             "token": instaAPI.token,
+            'username': self.username,
             "cookies": self.extract_cookies(instaAPI.s.cookies)
         }
         self.sessions.update_one({ 'session_id': self.session_id },  { "$set": output_data }, upsert=True)
@@ -388,7 +389,7 @@ class APIStorage(object):
         self.password = password if self.password == "" else self.password
         instaAPI = InstagramAPI(self.username)
 
-        output_data = self.sessions.find_one({ 'session_id': self.session_id })
+        output_data = self.sessions.find_one({ 'session_id': self.session_id, 'username': self.username })
         if output_data is None:
             instaAPI.login(self.password)
             self.save(instaAPI)
